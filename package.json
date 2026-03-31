@@ -1,0 +1,13 @@
+{
+  "name": "mi-app-segura",
+  "version": "1.0.0",
+  "description": "Proyecto para práctica SAST",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "mysql": "^2.18.1"
+  }
+}
