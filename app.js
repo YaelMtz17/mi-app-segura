@@ -1,234 +1,138 @@
-// ========== DEPENDENCIAS ==========
-// CORRECCIÓN 1: Usar node:crypto en lugar de crypto
 const express = require('express');
-const crypto = require('node:crypto');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
-
-// ========== INICIALIZACIÓN ==========
+const mysql = require('mysql');
+const fs = require('fs');
+const crypto = require('crypto');
 const app = express();
 
-// ========== MIDDLEWARE DE SEGURIDAD ==========
-app.use(helmet());
-app.use(express.json());
+// ========== VULNERABILIDAD 1: Hardcoded Secrets ==========
+const API_KEY = "sk_live_4eC39HqLyjWDarjtT1zdp7dc";
+const DB_PASSWORD = "admin123";
+const JWT_SECRET = "mi-secreto-super-seguro-123";
+const AWS_ACCESS_KEY = "AKIAIOSFODNN7EXAMPLE";
 
-// ========== RATE LIMITING ==========
-const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 100,
-    message: { error: 'Too many requests' }
-});
-app.use(limiter);
-
-// ========== FUNCIÓN DE SANITIZACIÓN ==========
-function sanitizeInput(input) {
-    if (typeof input !== 'string') return '';
-    return input.replace(/[<>]/g, '');
-}
-
-// ========== ENDPOINTS SEGUROS ==========
-
-// 1. Endpoint seguro con validación
-app.get('/api/status', (req, res) => {
-    res.json({
-        status: 'healthy',
-        timestamp: new Date().toISOString(),
-        version: '3.0.0'
-    });
-});
-
-// 2. Cálculo seguro (sin eval)
-app.get('/api/calculate', (req, res) => {
+// ========== VULNERABILIDAD 2: Uso de eval() ==========
+app.get('/calculate', (req, res) => {
     const expression = req.query.exp;
-    
-    if (!expression) {
-        return res.status(400).json({ error: 'Expression required' });
-    }
-    
-    const validPattern = /^[0-9+\-*/()\s]+$/;
-    if (!validPattern.test(expression)) {
-        return res.status(400).json({ error: 'Invalid expression' });
-    }
-    
-    try {
-        // CORRECCIÓN 2: Usar new Function() en lugar de Function()
-        const calculate = new Function('return (' + expression + ')');
-        const result = calculate();
-        res.json({ result });
-    } catch {
-        res.status(400).json({ error: 'Invalid expression' });
-    }
+    const result = eval(expression); // Peligroso: permite inyección de código
+    res.send(`Resultado: ${result}`);
 });
 
-// 3. Login con cookies seguras
-app.post('/api/login', (req, res) => {
-    const { username } = req.body;
-    
-    if (!username || typeof username !== 'string') {
-        return res.status(400).json({ error: 'Username required' });
-    }
-    
-    const safeUsername = sanitizeInput(username);
-    
-    res.cookie('session', crypto.randomBytes(32).toString('hex'), {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        maxAge: 3600000
+// ========== VULNERABILIDAD 3: Insecure Cookies ==========
+app.get('/login', (req, res) => {
+    res.cookie('session', 'user123', {
+        // Falta HttpOnly, Secure y SameSite
+    });
+    res.cookie('admin', 'true', {
+        httpOnly: false // Cookie accesible por JavaScript
+    });
+    res.send('Login exitoso');
+});
+
+// ========== VULNERABILIDAD 4: SQL Injection ==========
+app.get('/user', (req, res) => {
+    const userId = req.query.id;
+    const connection = mysql.createConnection({
+        host: 'localhost',
+        user: 'root',
+        password: DB_PASSWORD,
+        database: 'test'
     });
     
-    res.json({
-        success: true,
-        message: 'Login successful',
-        user: safeUsername
+    // Concatenación directa -> SQL Injection
+    const query = "SELECT * FROM users WHERE id = " + userId;
+    connection.query(query, (error, results) => {
+        if (error) throw error;
+        res.json(results);
     });
 });
 
-// 4. Obtener usuario (simulado, sin SQL)
-app.get('/api/user/:id', (req, res) => {
-    // CORRECCIÓN 3: Usar Number.parseInt en lugar de parseInt
-    const userId = Number.parseInt(req.params.id, 10);
-    
-    // CORRECCIÓN 4: Usar Number.isNaN en lugar de isNaN
-    if (Number.isNaN(userId) || userId <= 0) {
-        return res.status(400).json({ error: 'Invalid user ID' });
-    }
-    
-    const users = [
-        { id: 1, name: 'Admin' },
-        { id: 2, name: 'User' }
-    ];
-    
-    const user = users.find(u => u.id === userId);
-    
-    if (!user) {
-        return res.status(404).json({ error: 'User not found' });
-    }
-    
-    res.json(user);
-});
-
-// 5. Saludo seguro (sin XSS)
-app.get('/api/greet', (req, res) => {
-    let name = req.query.name || 'Guest';
-    
-    if (typeof name !== 'string') {
-        name = 'Guest';
-    }
-    
-    const safeName = sanitizeInput(name);
-    
-    res.json({
-        message: `Hello ${safeName}`,
-        timestamp: new Date().toISOString()
+// ========== VULNERABILIDAD 5: Path Traversal ==========
+app.get('/read-file', (req, res) => {
+    const filename = req.query.file;
+    // Sin validación de path -> permite leer cualquier archivo
+    fs.readFile('./files/' + filename, 'utf8', (err, data) => {
+        if (err) {
+            res.send('Error al leer archivo');
+        } else {
+            res.send(data);
+        }
     });
 });
 
-// 6. Ping seguro (sin command injection)
-app.get('/api/ping', (req, res) => {
+// ========== VULNERABILIDAD 6: XSS (Cross-Site Scripting) ==========
+app.get('/greet', (req, res) => {
+    const name = req.query.name;
+    // Respuesta sin sanitizar -> vulnerable a XSS
+    res.send(`<h1>Hola ${name}</h1>`);
+});
+
+// ========== VULNERABILIDAD 7: Command Injection ==========
+const { exec } = require('child_process');
+app.get('/ping', (req, res) => {
     const host = req.query.host;
-    
-    if (!host || typeof host !== 'string') {
-        return res.status(400).json({ error: 'Host required' });
-    }
-    
-    const validHostPattern = /^[a-zA-Z0-9.-]+$/;
-    if (!validHostPattern.test(host) || host.length > 100) {
-        return res.status(400).json({ error: 'Invalid host' });
-    }
-    
-    res.json({
-        host,
-        status: 'ok',
-        message: 'Host is reachable'
+    // Ejecución directa de comandos del sistema
+    exec(`ping -c 4 ${host}`, (error, stdout, stderr) => {
+        if (error) {
+            res.send(`Error: ${error.message}`);
+            return;
+        }
+        res.send(`<pre>${stdout}</pre>`);
     });
 });
 
-// 7. Encriptación segura (SHA-256)
-app.get('/api/encrypt', (req, res) => {
+// ========== VULNERABILIDAD 8: Criptografía Débil ==========
+app.get('/encrypt', (req, res) => {
     const text = req.query.text;
-    
-    if (!text || typeof text !== 'string') {
-        return res.status(400).json({ error: 'Text required' });
-    }
-    
-    if (text.length > 1000) {
-        return res.status(400).json({ error: 'Text too long' });
-    }
-    
-    const hash = crypto.createHash('sha256').update(text).digest('hex');
-    
+    // MD5 es débil y no debe usarse para contraseñas
+    const hash = crypto.createHash('md5').update(text).digest('hex');
+    res.send(`Hash MD5: ${hash}`);
+});
+
+// ========== VULNERABILIDAD 9: Exposición de Información Sensible ==========
+app.get('/debug', (req, res) => {
+    // Exponer información del sistema
     res.json({
-        algorithm: 'SHA-256',
-        hash
+        node_version: process.version,
+        env: process.env,
+        db_password: DB_PASSWORD,
+        api_key: API_KEY
     });
 });
 
-// 8. Generar token seguro
-app.get('/api/token', (req, res) => {
-    const token = crypto.randomBytes(32).toString('hex');
-    
-    res.json({
-        token,
-        length: token.length,
-        secure: true
-    });
+// ========== VULNERABILIDAD 10: Missing Security Headers ==========
+app.get('/api/data', (req, res) => {
+    // No se incluyen headers de seguridad como CORS, CSP, etc.
+    res.json({ data: 'Información sensible', user: 'admin' });
 });
 
-// 9. Información segura (sin exposición)
-app.get('/api/info', (req, res) => {
-    res.json({
-        name: 'Secure API',
-        version: '3.0.0',
-        status: 'operational'
-    });
+// ========== VULNERABILIDAD 11: Weak Random Number Generation ==========
+app.get('/generate-token', (req, res) => {
+    // Math.random() no es criptográficamente seguro
+    const token = Math.random().toString(36).substring(2);
+    res.send(`Token generado: ${token}`);
 });
 
-// 10. Redirección segura
-app.get('/api/redirect', (req, res) => {
-    const destination = req.query.to;
-    const allowedDestinations = ['home', 'profile', 'settings'];
-    
-    if (!destination || !allowedDestinations.includes(destination)) {
-        return res.status(400).json({ error: 'Invalid destination' });
-    }
-    
-    res.json({
-        message: `Redirect to ${destination}`,
-        redirect: `/api/${destination}`
-    });
+// ========== VULNERABILIDAD 12: No Rate Limiting ==========
+app.get('/login-attempt', (req, res) => {
+    // Sin límite de intentos -> vulnerable a fuerza bruta
+    res.send('Intento de login registrado');
 });
 
-// 11. Health check
-app.get('/health', (req, res) => {
-    res.status(200).json({ status: 'healthy' });
+// ========== VULNERABILIDAD 13: Deprecated Functions ==========
+app.get('/old-function', (req, res) => {
+    // Uso de función obsoleta
+    const buffer = new Buffer('datos'); // Buffer() está deprecated
+    res.send('Usando función obsoleta');
 });
 
-// 12. Root endpoint
-app.get('/', (req, res) => {
-    res.json({
-        message: 'Secure API',
-        endpoints: ['/api/status', '/health', '/api/info'],
-        version: '3.0.0'
-    });
+// ========== VULNERABILIDAD 14: Insecure Redirect ==========
+app.get('/redirect', (req, res) => {
+    const url = req.query.url;
+    // Redirección sin validación -> Open Redirect
+    res.redirect(url);
 });
 
-// ========== MANEJO DE ERRORES ==========
-app.use((err, req, res, next) => {
-    console.error(err.message);
-    res.status(500).json({ error: 'Internal server error' });
-});
-
-// 404 handler
-app.use((req, res) => {
-    res.status(404).json({ error: 'Endpoint not found' });
-});
-
-// ========== INICIO DEL SERVIDOR ==========
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-    console.log(`Secure server running on port ${PORT}`);
-    console.log(`Mode: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`All code smells fixed - Ready for Quality Gate PASSED`);
+app.listen(3000, () => {
+    console.log('Servidor corriendo en puerto 3000');
+    console.log('⚠️ Este código contiene múltiples vulnerabilidades para práctica SAST');
 });
