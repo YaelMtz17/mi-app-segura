@@ -1,26 +1,29 @@
 {
   "name": "mi-app-segura",
   "version": "2.0.0",
-  "description": "Proyecto para práctica SAST - Versión corregida",
+  "description": "Proyecto para práctica SAST - Versión con vulnerabilidades corregidas",
   "main": "app.js",
   "scripts": {
     "start": "node app.js",
-    "dev": "nodemon app.js",
-    "security-check": "npm audit"
+    "dev": "nodemon app.js"
   },
+  "keywords": [
+    "sast",
+    "security",
+    "sonarcloud",
+    "practice"
+  ],
+  "author": "Estudiante SAST",
+  "license": "ISC",
   "dependencies": {
     "express": "^4.18.2",
     "mysql": "^2.18.1",
     "dotenv": "^16.3.1",
     "helmet": "^7.0.0",
     "express-rate-limit": "^6.10.0",
-    "express-validator": "^7.0.1",
-    "ping": "^0.4.4",
-    "crypto": "^1.0.1"
+    "ping": "^0.4.4"
   },
   "devDependencies": {
     "nodemon": "^3.0.0"
-  },
-  "author": "Estudiante SAST",
-  "license": "ISC"
+  }
 }
